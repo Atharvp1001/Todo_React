@@ -1,0 +1,83 @@
+pipeline {
+    agent any
+
+    environment {
+        DOCKER_IMAGE = 'your-dockerhub-username/my-react-todo-app'
+        KUBE_NAMESPACE = 'todo-app'
+        DOCKER_CREDS = credentials('dockerhub-creds') // Store in Jenkins Credentials
+    }
+
+    stages {
+        // Stage 1: Checkout Code
+        stage('Checkout Git') {
+            steps {
+                git branch: 'main', 
+                url: 'https://github.com/Atharvp1001/Todo_React.git'
+            }
+        }
+
+        // Stage 2: Install Dependencies
+        stage('Install Dependencies') {
+            steps {
+                sh 'npm install'
+            }
+        }
+
+        // Stage 3: Run Tests
+        stage('Run Tests') {
+            steps {
+                sh 'npm test'
+            }
+            post {
+                always {
+                    junit 'junit.xml' // If you configure Jest to output JUnit format
+                }
+            }
+        }
+
+        // Stage 4: Build Docker Image
+        stage('Build Docker Image') {
+            steps {
+                script {
+                    docker.build("${DOCKER_IMAGE}:${env.BUILD_NUMBER}")
+                }
+            }
+        }
+
+        // Stage 5: Push to Docker Hub
+        stage('Push to Docker Hub') {
+            steps {
+                script {
+                    docker.withRegistry('https://registry.hub.docker.com', 'dockerhub-creds') {
+                        docker.image("${DOCKER_IMAGE}:${env.BUILD_NUMBER}").push()
+                        docker.image("${DOCKER_IMAGE}:${env.BUILD_NUMBER}").push('latest')
+                    }
+                }
+            }
+        }
+
+        // Stage 6: Deploy to Kubernetes
+        stage('Deploy to Kubernetes') {
+            steps {
+                sh """
+                    kubectl config set-context --current --namespace=${KUBE_NAMESPACE}
+                    kubectl apply -f k8s/
+                    kubectl rollout status deployment/react-todo-app
+                """
+            }
+        }
+    }
+
+    post {
+        success {
+            slackSend channel: '#devops',
+                      color: 'good',
+                      message: "SUCCESS: Job ${env.JOB_NAME} build ${env.BUILD_NUMBER}"
+        }
+        failure {
+            slackSend channel: '#devops',
+                      color: 'danger',
+                      message: "FAILED: Job ${env.JOB_NAME} build ${env.BUILD_NUMBER}"
+        }
+    }
+}
