@@ -56,4 +56,5 @@ function App() {
   );
 }
 
+// This is the only line that was missing from your original file
 export default App;
